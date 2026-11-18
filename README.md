@@ -84,13 +84,13 @@ Example entries for `~/.claude/settings.json` (replace `<repo>` with your clone 
   "env": { "BIELIK_GUARD_LOCAL_ALLOWLIST": "<path outside the repo>/allowlist.json" },
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "<repo>/venv/Scripts/python.exe <repo>/.claude/hooks/guard.py", "timeout": 30 }] }
+      { "hooks": [{ "type": "command", "command": "bash <repo>/.claude/hooks/run_hook.sh guard.py || exit 2", "timeout": 30 }] }
     ],
     "PreToolUse": [
-      { "matcher": "Read", "hooks": [{ "type": "command", "command": "<repo>/venv/Scripts/python.exe <repo>/.claude/hooks/pre_tool_hook.py", "timeout": 15 }] },
-      { "matcher": "Grep", "hooks": [{ "type": "command", "command": "<repo>/venv/Scripts/python.exe <repo>/.claude/hooks/pre_tool_hook.py", "timeout": 15 }] },
+      { "matcher": "Read", "hooks": [{ "type": "command", "command": "bash <repo>/.claude/hooks/run_hook.sh pre_tool_hook.py || exit 2", "timeout": 15 }] },
+      { "matcher": "Grep", "hooks": [{ "type": "command", "command": "bash <repo>/.claude/hooks/run_hook.sh pre_tool_hook.py || exit 2", "timeout": 15 }] },
       { "matcher": "^(Write|Edit|MultiEdit|NotebookEdit)$", "hooks": [{ "type": "command", "command": "node <repo>/.claude/hooks/backup_hook.js", "timeout": 20 }] },
-      { "matcher": "^(WebFetch|WebSearch|Bash|PowerShell)$|^mcp__(?!ccd_|terminal__|visualize__).*", "hooks": [{ "type": "command", "command": "<repo>/venv/Scripts/python.exe <repo>/.claude/hooks/outbound_pii_hook.py", "timeout": 30 }] }
+      { "matcher": "^(WebFetch|WebSearch|Bash|PowerShell)$|^mcp__(?!ccd_|terminal__|visualize__).*", "hooks": [{ "type": "command", "command": "bash <repo>/.claude/hooks/run_hook.sh outbound_pii_hook.py || exit 2", "timeout": 30 }] }
     ]
   }
 }
@@ -213,6 +213,7 @@ echo {"tool_name":"Read","tool_input":{"file_path":"C:\\docs\\kontakty.xlsx"}} |
 ## Known limitations
 
 - Hooks protect Claude Code only, not the claude.ai chat.
+- Python hooks run through `.claude/hooks/run_hook.sh`: if no interpreter is found (no `venv/`, broken venv, cloud session) the hook exits 2 and blocks. Before this, a missing `venv/Scripts/python.exe` gave exit 127 and Claude Code let the prompt through unchecked. Set `BIELIK_GUARD_PYTHON` to use a venv outside the repo.
 - A hook **timeout** still lets the action through (Claude Code before `onFailure: "block"` support); fail-closed covers errors inside the scripts.
 - The event log records the intent before an action, not the result after it (no `PostToolUse` hook yet).
 - The regex anonymizer treats any 9-digit number as a phone number (false positives on invoice or order numbers); PESEL, NIP, IBAN and names in free text are only partly detected.
