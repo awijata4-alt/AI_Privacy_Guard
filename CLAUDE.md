@@ -12,6 +12,7 @@ data, and keep a tamper-evident event log. All hooks are **fail-closed**.
 | `PreToolUse` | `.claude/hooks/pre_tool_hook.py` | `Read`, `Grep` |
 | `PreToolUse` | `.claude/hooks/backup_hook.js` | `Write`, `Edit`, `MultiEdit`, `NotebookEdit` |
 | `PreToolUse` | `.claude/hooks/outbound_pii_hook.py` | `WebFetch`, `WebSearch`, `Bash`, `PowerShell`, `mcp__*` (except trusted prefixes) |
+| (launcher) | `.claude/hooks/run_hook.sh` | Starts the Python hooks, exit 2 if no interpreter |
 | `PreToolUse` (optional, not registered by default) | `.claude/hooks/destructive_cmd_hook.js` | `Bash`, `PowerShell` |
 
 Event log: `.claude/hooks/log-event.js` → `logs/events.jsonl` (append-only, SHA-256 chain).
@@ -43,9 +44,14 @@ user. Only categories and counts go to the log, never values.
 ## Fail-closed design
 
 Hook errors block the action (exit code 2, or a `block`/`deny` decision).
-Emergency switch: `BIELIK_GUARD_BYPASS=1` restores pass-through for `guard.py`
-and `pre_tool_hook.py`; every use is written to the event log.
-Hook commands must use the project venv interpreter — a Python without
+Emergency switch: `BIELIK_GUARD_BYPASS=1` restores pass-through for `guard.py`,
+`pre_tool_hook.py` and `run_hook.sh`; every use is written to the event log.
+Python hooks are started through `.claude/hooks/run_hook.sh`
+(`bash "$CLAUDE_PROJECT_DIR/.claude/hooks/run_hook.sh" <script>.py || exit 2`).
+It looks for `$BIELIK_GUARD_PYTHON`, `venv/Scripts/python.exe`, then `venv/bin/python`
+and exits 2 when none starts — never call the interpreter path directly: a missing
+interpreter gives exit 127, which Claude Code treats as non-blocking (fail-open).
+The trailing `|| exit 2` covers a missing launcher. A Python without
 `transformers` makes `guard.py` block every prompt.
 Stdout is reserved for JSON output to Claude Code; diagnostics go to stderr.
 Known gap: a hook **timeout** still lets the action through in Claude Code
@@ -64,6 +70,7 @@ versions without `onFailure: "block"`.
 | `BIELIK_GUARD_LOCAL_ALLOWLIST` | Local JSON file outside the repo with `allow_value_patterns` (e.g. the owner's own addresses). |
 | `BIELIK_GUARD_PII_MODE` | `block` (default) or `warn`. |
 | `BIELIK_GUARD_BYPASS` | `1` = emergency fail-open (logged). |
+| `BIELIK_GUARD_PYTHON` | Path to the Python interpreter for the hooks (default: repo `venv/`). |
 | `EVENT_LOG_PATH` | Overrides the event log location. |
 | `PII_ANONYMIZER_PATH` | Directory containing `pii_anonymizer.py` (default: hooks directory). |
 | `BIELIK_GUARD_PATTERNS` | Absolute path to `sensitive_patterns.json`. |
@@ -95,6 +102,10 @@ echo '{"tool_name":"Read","tool_input":{"file_path":"/project/main.py"}}' \
 # Should block (sensitive path)
 echo '{"tool_name":"Read","tool_input":{"file_path":"/docs/spotkanie.pdf"}}' \
   | venv/Scripts/python.exe .claude/hooks/pre_tool_hook.py
+
+# Launcher without venv -> must exit 2 (block)
+echo '{"prompt":"test"}' | CLAUDE_PROJECT_DIR=$PWD \
+  sh -c 'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/run_hook.sh" guard.py || exit 2'; echo $?
 
 # Event log integrity
 node .claude/hooks/log-event.js verify
